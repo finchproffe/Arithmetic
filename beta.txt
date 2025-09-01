@@ -38,7 +38,6 @@ local miscSettings = {
     AutoPeakReturnMode = "KeyRelease",
     TeleportEnabled = false,
     TeleportBind = Enum.KeyCode.Tilde,
-    WalkSpeed = 50,
     ThirdPersonEnabled = false,
     ThirdPersonBind = Enum.UserInputType.MouseButton3,
     UnhookEnabled = false
@@ -56,8 +55,7 @@ local weaponSettings = {
     LockedAmmo = false,
     CustomDamageEnabled = false,
     CustomDamageValue = 100,
-    OriginalWeaponValues = {},
-    SelectedWeapon = nil
+    OriginalWeaponValues = {}
 }
 
 local menuVisible = true
@@ -122,18 +120,18 @@ NameWindowCorner.Parent = NameWindow
 
 local NameImage = Instance.new("ImageLabel")
 NameImage.Parent = NameWindow
-NameImage.Size = UDim2.new(0, 40, 0, 40)
-NameImage.Position = UDim2.new(0, 5, 0, 5)
+NameImage.Size = UDim2.new(0, 40, 0, 40) -- Reduced size to fit
+NameImage.Position = UDim2.new(0, 5, 0, 5) -- Aligned to the left
 NameImage.BackgroundTransparency = 1
-NameImage.Image = "rbxassetid://71201450503414"
+NameImage.Image = "rbxassetid://120914505895019"
 NameImage.ImageRectOffset = Vector2.new(0, 0)
 NameImage.ImageRectSize = Vector2.new(512, 512)
-NameImage.ScaleType = Enum.ScaleType.Crop
+NameImage.ScaleType = Enum.ScaleType.Fit
 
 local NameLabel = Instance.new("TextLabel")
 NameLabel.Parent = NameWindow
 NameLabel.Size = UDim2.new(0, 200, 0, 40)
-NameLabel.Position = UDim2.new(0, 50, 0, 5)
+NameLabel.Position = UDim2.new(0, 50, 0, 5) -- Adjusted to start after image
 NameLabel.BackgroundTransparency = 1
 NameLabel.Text = "Arithmetic · " .. player.Name
 NameLabel.TextColor3 = Color3.new(1, 1, 1)
@@ -623,44 +621,6 @@ local teleportBindButton = createButton(miscContent, "Change Teleport Bind: " ..
     end
 end, Enum.Font.GothamBlack)
 
-local walkSpeedLabel = Instance.new("TextLabel")
-walkSpeedLabel.Parent = miscContent
-walkSpeedLabel.Size = UDim2.new(0, 180, 0, 20)
-walkSpeedLabel.Position = UDim2.new(0.1, 0, 0.45, 0)
-walkSpeedLabel.Text = "WalkSpeed: " .. miscSettings.WalkSpeed
-walkSpeedLabel.TextColor3 = Color3.new(1, 1, 1)
-walkSpeedLabel.TextSize = 16
-walkSpeedLabel.Font = Enum.Font.Gotham
-walkSpeedLabel.BackgroundTransparency = 1
-
-local walkSpeedInput = Instance.new("TextBox")
-walkSpeedInput.Parent = miscContent
-walkSpeedInput.Size = UDim2.new(0, 180, 0, 30)
-walkSpeedInput.Position = UDim2.new(0.1, 0, 0.5, 0)
-walkSpeedInput.Text = tostring(miscSettings.WalkSpeed)
-walkSpeedInput.TextColor3 = Color3.new(1, 1, 1)
-walkSpeedInput.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
-walkSpeedInput.BackgroundTransparency = 0.3
-walkSpeedInput.TextSize = 14
-walkSpeedInput.Font = Enum.Font.Gotham
-
-local inputWalkCorner = Instance.new("UICorner")
-inputWalkCorner.CornerRadius = UDim.new(0, 6)
-inputWalkCorner.Parent = walkSpeedInput
-
-local inputWalkStroke = Instance.new("UIStroke")
-inputWalkStroke.Thickness = 1
-inputWalkStroke.Color = Color3.new(0.6, 0.6, 0.6)
-inputWalkStroke.Parent = walkSpeedInput
-
-walkSpeedInput.Changed:Connect(function()
-    local speed = tonumber(walkSpeedInput.Text)
-    if speed then
-        miscSettings.WalkSpeed = math.clamp(speed, 16, 100)
-        walkSpeedLabel.Text = "WalkSpeed: " .. miscSettings.WalkSpeed
-    end
-end)
-
 local altButton = createButton(miscContent, "Alt Toggle", 0.65, function()
     altButtonActive = not altButtonActive
     altButton.BackgroundColor3 = altButtonActive and Color3.fromRGB(255, 165, 0) or Color3.new(0.3, 0.3, 0.3)
@@ -705,162 +665,25 @@ createCheckbox(weaponContent, "Wall Hack", 0.2, weaponSettings.WallHackEnabled, 
     weaponSettings.WallHackEnabled = val
     updateWeaponSettings()
 end)
-
-local function getWeaponsList()
-    local weapons = {}
-    if player.Character then
-        for _, tool in pairs(player.Character:GetChildren()) do
-            if tool:IsA("Tool") then
-                table.insert(weapons, tool.Name)
-            end
-        end
-    end
-    if player.Backpack then
-        for _, tool in pairs(player.Backpack:GetChildren()) do
-            if tool:IsA("Tool") then
-                table.insert(weapons, tool.Name)
-            end
-        end
-    end
-    return weapons
-end
-
--- Custom Ammo
 createCheckbox(weaponContent, "Custom Ammo", 0.3, weaponSettings.CustomAmmoEnabled, function(val)
     weaponSettings.CustomAmmoEnabled = val
     updateWeaponSettings()
 end)
-
-local ammoButton = createButton(weaponContent, "Select Weapon: None", 0.35, function()
-    local ammoMenu = Instance.new("Frame")
-    ammoMenu.Parent = weaponContent
-    ammoMenu.Size = UDim2.new(0, 150, 0, 120)
-    ammoMenu.Position = UDim2.new(0.1, 0, 0.4, 0)
-    ammoMenu.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
-    ammoMenu.BackgroundTransparency = 0.3
-    
-    local ammoMenuCorner = Instance.new("UICorner")
-    ammoMenuCorner.CornerRadius = UDim.new(0, 6)
-    ammoMenuCorner.Parent = ammoMenu
-    
-    local ammoMenuStroke = Instance.new("UIStroke")
-    ammoMenuStroke.Thickness = 1
-    ammoMenuStroke.Color = Color3.new(0.6, 0.6, 0.6)
-    ammoMenuStroke.Parent = ammoMenu
-    
-    local weapons = getWeaponsList()
-    for i, weapon in ipairs(weapons) do
-        local btn = Instance.new("TextButton")
-        btn.Parent = ammoMenu
-        btn.Size = UDim2.new(0, 140, 0, 25)
-        btn.Position = UDim2.new(0.033, 0, (i-1) * 0.25 + 0.05, 0)
-        btn.Text = weapon
-        btn.TextColor3 = Color3.new(1, 1, 1)
-        btn.BackgroundColor3 = weaponSettings.SelectedWeapon == weapon and Color3.fromRGB(255, 165, 0) or Color3.new(0.3, 0.3, 0.3)
-        btn.BackgroundTransparency = 0.2
-        btn.TextSize = 14
-        btn.Font = Enum.Font.Gotham
-        
-        local btnCorner = Instance.new("UICorner")
-        btnCorner.CornerRadius = UDim.new(0, 4)
-        btnCorner.Parent = btn
-        
-        btn.MouseButton1Click:Connect(function()
-            weaponSettings.SelectedWeapon = weapon
-            ammoButton.Text = "Select Weapon: " .. weapon
-            for _, otherBtn in pairs(ammoMenu:GetChildren()) do
-                if otherBtn:IsA("TextButton") then
-                    otherBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
-                end
-            end
-            btn.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
-            ammoMenu:Destroy()
-            updateWeaponSettings()
-        end)
-    end
-    
-    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-    TweenService:Create(ammoMenu, tweenInfo, {BackgroundTransparency = 0.3}):Play()
-    for _, btn in pairs(ammoMenu:GetChildren()) do
-        if btn:IsA("TextButton") then
-            TweenService:Create(btn, tweenInfo, {BackgroundTransparency = 0.2, TextTransparency = 0}):Play()
-        end
-    end
+createCheckbox(weaponContent, "Custom Damage", 0.4, weaponSettings.CustomDamageEnabled, function(val)
+    weaponSettings.CustomDamageEnabled = val
+    updateWeaponSettings()
 end)
 
-local lockAmmoButton = createButton(weaponContent, "Lock Ammo", 0.45, function()
+local lockAmmoButton = createButton(weaponContent, "Lock Ammo", 0.5, function()
     weaponSettings.LockedAmmo = not weaponSettings.LockedAmmo
     lockAmmoButton.BackgroundColor3 = weaponSettings.LockedAmmo and Color3.fromRGB(255, 165, 0) or Color3.new(0.3, 0.3, 0.3)
     updateWeaponSettings()
 end)
 
--- Custom Damage
-createCheckbox(weaponContent, "Custom Damage", 0.55, weaponSettings.CustomDamageEnabled, function(val)
-    weaponSettings.CustomDamageEnabled = val
-    updateWeaponSettings()
-end)
-
-local damageButton = createButton(weaponContent, "Select Weapon: None", 0.6, function()
-    local damageMenu = Instance.new("Frame")
-    damageMenu.Parent = weaponContent
-    damageMenu.Size = UDim2.new(0, 150, 0, 120)
-    damageMenu.Position = UDim2.new(0.1, 0, 0.65, 0)
-    damageMenu.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
-    damageMenu.BackgroundTransparency = 0.3
-    
-    local damageMenuCorner = Instance.new("UICorner")
-    damageMenuCorner.CornerRadius = UDim.new(0, 6)
-    damageMenuCorner.Parent = damageMenu
-    
-    local damageMenuStroke = Instance.new("UIStroke")
-    damageMenuStroke.Thickness = 1
-    damageMenuStroke.Color = Color3.new(0.6, 0.6, 0.6)
-    damageMenuStroke.Parent = damageMenu
-    
-    local weapons = getWeaponsList()
-    for i, weapon in ipairs(weapons) do
-        local btn = Instance.new("TextButton")
-        btn.Parent = damageMenu
-        btn.Size = UDim2.new(0, 140, 0, 25)
-        btn.Position = UDim2.new(0.033, 0, (i-1) * 0.25 + 0.05, 0)
-        btn.Text = weapon
-        btn.TextColor3 = Color3.new(1, 1, 1)
-        btn.BackgroundColor3 = weaponSettings.SelectedWeapon == weapon and Color3.fromRGB(255, 165, 0) or Color3.new(0.3, 0.3, 0.3)
-        btn.BackgroundTransparency = 0.2
-        btn.TextSize = 14
-        btn.Font = Enum.Font.Gotham
-        
-        local btnCorner = Instance.new("UICorner")
-        btnCorner.CornerRadius = UDim.new(0, 4)
-        btnCorner.Parent = btn
-        
-        btn.MouseButton1Click:Connect(function()
-            weaponSettings.SelectedWeapon = weapon
-            damageButton.Text = "Select Weapon: " .. weapon
-            for _, otherBtn in pairs(damageMenu:GetChildren()) do
-                if otherBtn:IsA("TextButton") then
-                    otherBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
-                end
-            end
-            btn.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
-            damageMenu:Destroy()
-            updateWeaponSettings()
-        end)
-    end
-    
-    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-    TweenService:Create(damageMenu, tweenInfo, {BackgroundTransparency = 0.3}):Play()
-    for _, btn in pairs(damageMenu:GetChildren()) do
-        if btn:IsA("TextButton") then
-            TweenService:Create(btn, tweenInfo, {BackgroundTransparency = 0.2, TextTransparency = 0}):Play()
-        end
-    end
-end)
-
 local damageInputLabel = Instance.new("TextLabel")
 damageInputLabel.Parent = weaponContent
 damageInputLabel.Size = UDim2.new(0, 180, 0, 20)
-damageInputLabel.Position = UDim2.new(0.1, 0, 0.7, 0)
+damageInputLabel.Position = UDim2.new(0.1, 0, 0.6, 0)
 damageInputLabel.Text = "Damage: " .. weaponSettings.CustomDamageValue
 damageInputLabel.TextColor3 = Color3.new(1, 1, 1)
 damageInputLabel.TextSize = 16
@@ -870,7 +693,7 @@ damageInputLabel.BackgroundTransparency = 1
 local damageInput = Instance.new("TextBox")
 damageInput.Parent = weaponContent
 damageInput.Size = UDim2.new(0, 180, 0, 30)
-damageInput.Position = UDim2.new(0.1, 0, 0.75, 0)
+damageInput.Position = UDim2.new(0.1, 0, 0.65, 0)
 damageInput.Text = tostring(weaponSettings.CustomDamageValue)
 damageInput.TextColor3 = Color3.new(1, 1, 1)
 damageInput.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
@@ -897,62 +720,21 @@ damageInput.Changed:Connect(function()
 end)
 
 local function updateWeaponSettings()
-    local weapons = {}
-    if player.Character then
-        for _, tool in pairs(player.Character:GetChildren()) do
-            if tool:IsA("Tool") then
-                weapons[tool.Name] = tool
+    local weapons = game:GetService("ReplicatedStorage"):FindFirstChild("Weapons")
+    if not weapons then return end
+    for _, weapon in pairs(weapons:GetChildren()) do
+        -- weapon может быть Tool или Model, ищем NumberValue Spread
+        local spread = weapon:FindFirstChild("Spread")
+        if spread and spread:IsA("NumberValue") then
+            if weaponSettings.NoSpreadEnabled then
+                spread.Value = 0
+                -- Если внутри Spread есть дочерние NumberValue, тоже ставим их в 0
+                for _, child in pairs(spread:GetChildren()) do
+                    if child:IsA("NumberValue") then
+                        child.Value = 0
+                    end
+                end
             end
-        end
-    end
-    if player.Backpack then
-        for _, tool in pairs(player.Backpack:GetChildren()) do
-            if tool:IsA("Tool") then
-                weapons[tool.Name] = tool
-            end
-        end
-    end
-
-    for weaponName, weapon in pairs(weapons) do
-        local ammo = weapon:FindFirstChild("Ammo")
-        local storedAmmo = weapon:FindFirstChild("StoredAmmo")
-        local dmg = weapon:FindFirstChild("DMG")
-        local penetration = weapon:FindFirstChild("Penetration")
-
-        if not weaponSettings.OriginalWeaponValues[weaponName] then
-            weaponSettings.OriginalWeaponValues[weaponName] = {
-                Ammo = ammo and ammo.Value or 0,
-                StoredAmmo = storedAmmo and storedAmmo.Value or 0,
-                DMG = dmg and dmg.Value or 0,
-                Penetration = penetration and penetration.Value or 0
-            }
-        end
-
-        if weaponSettings.NoSpreadEnabled and weaponName == weaponSettings.SelectedWeapon then
-            if weaponSettings.LockedAmmo and ammo and storedAmmo then
-                local lockedAmmoValue = weaponSettings.OriginalWeaponValues[weaponName].LockedAmmoValue or ammo.Value
-                weaponSettings.OriginalWeaponValues[weaponName].LockedAmmoValue = lockedAmmoValue
-                ammo.Value = lockedAmmoValue
-                storedAmmo.Value = lockedAmmoValue
-            elseif ammo and storedAmmo then
-                ammo.Value = weaponSettings.OriginalWeaponValues[weaponName].Ammo
-                storedAmmo.Value = weaponSettings.OriginalWeaponValues[weaponName].StoredAmmo
-            end
-        elseif ammo and storedAmmo then
-            ammo.Value = weaponSettings.OriginalWeaponValues[weaponName].Ammo
-            storedAmmo.Value = weaponSettings.OriginalWeaponValues[weaponName].StoredAmmo
-        end
-
-        if weaponSettings.CustomDamageEnabled and dmg and weaponName == weaponSettings.SelectedWeapon then
-            dmg.Value = weaponSettings.CustomDamageValue
-        elseif dmg then
-            dmg.Value = weaponSettings.OriginalWeaponValues[weaponName].DMG
-        end
-
-        if weaponSettings.WallHackEnabled and penetration then
-            penetration.Value = 9999999
-        elseif penetration then
-            penetration.Value = weaponSettings.OriginalWeaponValues[weaponName].Penetration
         end
     end
 end
@@ -982,15 +764,6 @@ miscTab.MouseButton1Click:Connect(function() switchTab(miscContent) end)
 otherTab.MouseButton1Click:Connect(function() switchTab(otherContent) end)
 visualTab.MouseButton1Click:Connect(function() switchTab(visualContent) end)
 weaponTab.MouseButton1Click:Connect(function() switchTab(weaponContent) end)
-
--- Walkspeed loop
-spawn(function()
-    while RunService.RenderStepped:Wait() do
-        if player.Character and player.Character:FindFirstChild("Humanoid") and not miscSettings.UnhookEnabled then
-            player.Character.Humanoid.WalkSpeed = miscSettings.WalkSpeed
-        end
-    end
-end)
 
 -- Flashbang Removal Loop
 spawn(function()
@@ -1055,10 +828,6 @@ local function unhookCheats()
     player.CameraMode = Enum.CameraMode.Classic
     player.CameraMinZoomDistance = 0.5
     player.CameraMaxZoomDistance = 128
-    
-    if player.Character and player.Character:FindFirstChild("Humanoid") then
-        player.Character.Humanoid.WalkSpeed = 16
-    end
     
     ScreenGui:Destroy()
     
@@ -1387,6 +1156,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                 humanoid.Jump = true
                 isJumping = true
                 lastJumpTime = currentTime
+                humanoid.WalkSpeed = 100
             end
         end
     elseif input.KeyCode == Enum.KeyCode.LeftAlt and not gameProcessed and miscSettings.AutoPeakEnabled and player.Character then
@@ -1496,6 +1266,7 @@ player.CharacterAdded:Connect(function(character)
                     character.Humanoid.Jump = true
                     isJumping = true
                     lastJumpTime = currentTime
+                    character.Humanoid.WalkSpeed = 100
                 elseif isJumping and character.Humanoid then
                     isJumping = false
                 end
@@ -1513,14 +1284,24 @@ end)
 RunService.Heartbeat:Connect(function()
     if miscSettings.BHopEnabled and player.Character and player.Character:FindFirstChild("Humanoid") and isJumping and player.Character.Humanoid.FloorMaterial == Enum.Material.Air then
         local humanoid = player.Character.Humanoid
-        if humanoid.WalkSpeed ~= 130 then
-            humanoid.WalkSpeed = 130
+        if humanoid.WalkSpeed ~= 100 then
+            humanoid.WalkSpeed = 100
         end
+    elseif player.Character and player.Character:FindFirstChild("Humanoid") and not miscSettings.BHopEnabled then
+        player.Character.Humanoid.WalkSpeed = miscSettings.WalkSpeed
     end
     if player.Character and player.Character:FindFirstChild("Humanoid") then
         playerWalkSpeed = player.Character.Humanoid.WalkSpeed
     end
 end)
+
+-- Список оружия (добавь в начало файла, до всех функций)
+local weaponList = {
+    "AK47", "AUG", "AWP", "Bizon", "DesertEagle", "DualBerettas", "Famas", "FiveSeven", 
+    "G3SG1", "Galil", "Glock", "M249", "M4A1", "M4A4", "MAC10", "MAG7", "MP7", 
+    "MP7-SD", "MP9", "Negev", "Nova", "P2000", "P250", "P90", "R8", "SG", 
+    "SawedOff", "Scout", "Tec9", "UMP", "USP", "XM"
+}
 
 local function addVisualsToCharacter(character, otherPlayer)
     if not character or not character:FindFirstChild("Humanoid") or character == player.Character or not espSettings.Enabled or miscSettings.UnhookEnabled then
@@ -1598,7 +1379,7 @@ local function addVisualsToCharacter(character, otherPlayer)
             hpLabel.BackgroundTransparency = 1
             hpLabel.Text = "HP: " .. math.floor(humanoid.Health)
             hpLabel.TextColor3 = teamColor
-            hpLabel.TextSize =  14
+            hpLabel.TextSize = 14
             hpLabel.Font = Enum.Font.Gotham
             hpLabel.TextStrokeTransparency = 0.5
         else
