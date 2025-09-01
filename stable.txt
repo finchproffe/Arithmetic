@@ -4,6 +4,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualUser = game:GetService("VirtualUser")
 local camera = workspace.CurrentCamera
+local TweenService = game:GetService("TweenService")
 
 -- Настройки
 local espSettings = {
@@ -11,6 +12,7 @@ local espSettings = {
     ShowNames = true,
     ShowHP = true,
     Highlight = true,
+    TracersEnabled = false,
     Team = { Enabled = true, Color = Color3.fromRGB(0, 255, 0) },
     Enemy = { Enabled = true, Color = Color3.fromRGB(255, 0, 0) }
 }
@@ -21,32 +23,39 @@ local aimbotSettings = {
     updateInterval = 0.05,
     jumpCheckInterval = 0.1,
     maxCameraDistance = 10000,
-    noSpreadEnabled = true,
     jumpAimVariants = 10,
-    aimLerpSpeed = 0.7,
+    aimLerpSpeed = 0.85,
     autoStopEnabled = false,
-    selectedHitboxes = {},
+    selectedHitboxes = {"Head"},
     smoothness = 0.5,
-    noSpreadDuration = 0.02 -- Длительность фиксации для No Spread (в секундах)
+    targetingMethod = "Nearest",
+    lockedTarget = nil
 }
 
 local miscSettings = {
     BHopEnabled = false,
     AutoPeakEnabled = false,
-    AutoPeakReturnMode = "KeyRelease", -- "KeyRelease" или "Shoot"
+    AutoPeakReturnMode = "KeyRelease",
     TeleportEnabled = false,
     TeleportBind = Enum.KeyCode.Tilde,
-    WalkSpeed = 50,
     ThirdPersonEnabled = false,
     ThirdPersonBind = Enum.UserInputType.MouseButton3,
     UnhookEnabled = false
 }
 
--- Spinbot Settings
-local antiAimSettings = {
-    Enabled = false,
-    SpinSpeed = 360, -- Скорость вращения в градусах/сек
-    UpdateInterval = 0.1
+local visualSettings = {
+    RemoveFlashEnabled = false,
+    OriginalFlashValues = {Value1 = nil, Value2 = nil}
+}
+
+local weaponSettings = {
+    NoSpreadEnabled = false,
+    WallHackEnabled = false,
+    CustomAmmoEnabled = false,
+    LockedAmmo = false,
+    CustomDamageEnabled = false,
+    CustomDamageValue = 100,
+    OriginalWeaponValues = {}
 }
 
 local menuVisible = true
@@ -62,12 +71,12 @@ local targetCFrame = camera.CFrame
 local isJumping = false
 local lastUpdateTime = 0
 local lastJumpCheckTime = 0
-local lastNoSpreadTime = 0
 local raycastParams = RaycastParams.new()
 raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
 raycastParams.IgnoreWater = true
 local isReturning = false
 local peakWaypoints = {}
+local hitboxMenuOpen = false
 
 -- Создание GUI-меню
 local ScreenGui = Instance.new("ScreenGui")
@@ -91,15 +100,75 @@ FrameCorner.Parent = Frame
 
 local FrameStroke = Instance.new("UIStroke")
 FrameStroke.Thickness = 1
-FrameStroke.Color = Color3.new(255, 255, 255)
+FrameStroke.Color = Color3.new(1, 1, 1)
 FrameStroke.Transparency = 0.8
 FrameStroke.Parent = Frame
+
+-- Draggable Window
+local NameWindow = Instance.new("Frame")
+NameWindow.Parent = ScreenGui
+NameWindow.Size = UDim2.new(0, 250, 0, 50)
+NameWindow.Position = UDim2.new(0.1, 0, 0, 5)
+NameWindow.BackgroundColor3 = Color3.new(0, 0, 0)
+NameWindow.BackgroundTransparency = 0
+NameWindow.Active = true
+NameWindow.Visible = true
+
+local NameWindowCorner = Instance.new("UICorner")
+NameWindowCorner.CornerRadius = UDim.new(0, 8)
+NameWindowCorner.Parent = NameWindow
+
+local NameImage = Instance.new("ImageLabel")
+NameImage.Parent = NameWindow
+NameImage.Size = UDim2.new(0, 40, 0, 40) -- Reduced size to fit
+NameImage.Position = UDim2.new(0, 5, 0, 5) -- Aligned to the left
+NameImage.BackgroundTransparency = 1
+NameImage.Image = "rbxassetid://120914505895019"
+NameImage.ImageRectOffset = Vector2.new(0, 0)
+NameImage.ImageRectSize = Vector2.new(512, 512)
+NameImage.ScaleType = Enum.ScaleType.Fit
+
+local NameLabel = Instance.new("TextLabel")
+NameLabel.Parent = NameWindow
+NameLabel.Size = UDim2.new(0, 200, 0, 40)
+NameLabel.Position = UDim2.new(0, 50, 0, 5) -- Adjusted to start after image
+NameLabel.BackgroundTransparency = 1
+NameLabel.Text = "Arithmetic · " .. player.Name
+NameLabel.TextColor3 = Color3.new(1, 1, 1)
+NameLabel.TextSize = 16
+NameLabel.Font = Enum.Font.GothamBlack
+NameLabel.TextXAlignment = Enum.TextXAlignment.Left
+NameLabel.TextYAlignment = Enum.TextYAlignment.Center
+
+NameWindow.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 and menuVisible then
+        local initialPos = input.Position
+        local initialFramePos = NameWindow.Position
+        local connection
+        connection = UserInputService.InputChanged:Connect(function(inputChanged)
+            if inputChanged.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = inputChanged.Position - initialPos
+                NameWindow.Position = UDim2.new(
+                    initialFramePos.X.Scale,
+                    initialFramePos.X.Offset + delta.X,
+                    initialFramePos.Y.Scale,
+                    initialFramePos.Y.Offset + delta.Y
+                )
+            end
+        end)
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                connection:Disconnect()
+            end
+        end)
+    end
+end)
 
 -- Вкладки
 local function createTabButton(text, xScale)
     local tab = Instance.new("TextButton")
     tab.Parent = Frame
-    tab.Size = UDim2.new(0, 80, 0, 30)
+    tab.Size = UDim2.new(0, 60, 0, 30)
     tab.Position = UDim2.new(xScale, 0, 0.02, 0)
     tab.Text = text
     tab.TextColor3 = Color3.new(1, 1, 1)
@@ -116,11 +185,12 @@ local function createTabButton(text, xScale)
     return tab
 end
 
-local aimbotTab = createTabButton("Aimbot", 0.05)
-local espTab = createTabButton("ESP", 0.25)
-local miscTab = createTabButton("Misc", 0.45)
-local otherTab = createTabButton("Other", 0.65)
-local antiAimTab = createTabButton("Spinbot", 0.85)
+local aimbotTab = createTabButton("Aimbot", 0.02)
+local espTab = createTabButton("ESP", 0.12)
+local miscTab = createTabButton("Misc", 0.22)
+local otherTab = createTabButton("Other", 0.32)
+local visualTab = createTabButton("Visual", 0.42)
+local weaponTab = createTabButton("Weapon", 0.52)
 
 local BottomLine = Instance.new("Frame")
 BottomLine.Parent = Frame
@@ -159,11 +229,17 @@ otherContent.Size = UDim2.new(1, 0, 1, 0)
 otherContent.BackgroundTransparency = 1
 otherContent.Visible = false
 
-local antiAimContent = Instance.new("Frame")
-antiAimContent.Parent = contentFrame
-antiAimContent.Size = UDim2.new(1, 0, 1, 0)
-antiAimContent.BackgroundTransparency = 1
-antiAimContent.Visible = false
+local visualContent = Instance.new("Frame")
+visualContent.Parent = contentFrame
+visualContent.Size = UDim2.new(1, 0, 1, 0)
+visualContent.BackgroundTransparency = 1
+visualContent.Visible = false
+
+local weaponContent = Instance.new("Frame")
+weaponContent.Parent = contentFrame
+weaponContent.Size = UDim2.new(1, 0, 1, 0)
+weaponContent.BackgroundTransparency = 1
+weaponContent.Visible = false
 
 local function createCheckbox(parent, text, yScale, setting, callback)
     local checkbox = Instance.new("TextButton")
@@ -204,17 +280,17 @@ local function createCheckbox(parent, text, yScale, setting, callback)
     return checkbox
 end
 
-local function createButton(parent, text, yScale, callback)
+local function createButton(parent, text, yScale, callback, font)
     local btn = Instance.new("TextButton")
     btn.Parent = parent
     btn.Size = UDim2.new(0, 150, 0, 30)
     btn.Position = UDim2.new(0.1, 0, yScale, 0)
     btn.Text = text
-    btn.TextColor3 = Color3.new(0, 0, 0)
+    btn.TextColor3 = Color3.new(1, 1, 1)
     btn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
     btn.BackgroundTransparency = 0.2
     btn.TextSize = 14
-    btn.Font = Enum.Font.Gotham
+    btn.Font = font or Enum.Font.Gotham
     
     local btnCorner = Instance.new("UICorner")
     btnCorner.CornerRadius = UDim.new(0, 6)
@@ -231,11 +307,140 @@ local function createButton(parent, text, yScale, callback)
     return btn
 end
 
+-- Aimbot Hitbox Dropdown
+local hitboxButton = createButton(aimbotContent, "Hitboxes: " .. (aimbotSettings.selectedHitboxes[1] or "None"), 0.2, function()
+    hitboxMenuOpen = not hitboxMenuOpen
+    hitboxMenu.Visible = hitboxMenuOpen
+    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+    local goal = hitboxMenuOpen and {BackgroundTransparency = 0.3} or {BackgroundTransparency = 1}
+    TweenService:Create(hitboxMenu, tweenInfo, goal):Play()
+    for _, btn in pairs(hitboxMenu:GetChildren()) do
+        if btn:IsA("TextButton") then
+            local btnGoal = hitboxMenuOpen and {BackgroundTransparency = 0.2, TextTransparency = 0} or {BackgroundTransparency = 1, TextTransparency = 1}
+            TweenService:Create(btn, tweenInfo, btnGoal):Play()
+        end
+    end
+end)
+
+local hitboxMenu = Instance.new("Frame")
+hitboxMenu.Parent = aimbotContent
+hitboxMenu.Size = UDim2.new(0, 150, 0, 180)
+hitboxMenu.Position = UDim2.new(0.1, 0, 0.25, 0)
+hitboxMenu.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+hitboxMenu.BackgroundTransparency = 1
+hitboxMenu.Visible = false
+
+local hitboxMenuCorner = Instance.new("UICorner")
+hitboxMenuCorner.CornerRadius = UDim.new(0, 6)
+hitboxMenuCorner.Parent = hitboxMenu
+
+local hitboxMenuStroke = Instance.new("UIStroke")
+hitboxMenuStroke.Thickness = 1
+hitboxMenuStroke.Color = Color3.new(0.6, 0.6, 0.6)
+hitboxMenuStroke.Parent = hitboxMenu
+
+local hitboxList = {"Head", "Torso", "LeftArm", "RightArm", "LeftLeg", "RightLeg"}
+for i, hitbox in ipairs(hitboxList) do
+    local btn = Instance.new("TextButton")
+    btn.Parent = hitboxMenu
+    btn.Size = UDim2.new(0, 140, 0, 25)
+    btn.Position = UDim2.new(0.033, 0, (i-1) * 0.167 + 0.05, 0)
+    btn.Text = hitbox
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.BackgroundColor3 = aimbotSettings.selectedHitboxes[1] == hitbox and Color3.fromRGB(255, 165, 0) or Color3.new(0.3, 0.3, 0.3)
+    btn.BackgroundTransparency = 1
+    btn.TextTransparency = 1
+    btn.TextSize = 14
+    btn.Font = Enum.Font.Gotham
+    
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 4)
+    btnCorner.Parent = btn
+    
+    btn.MouseButton1Click:Connect(function()
+        aimbotSettings.selectedHitboxes = {hitbox}
+        hitboxButton.Text = "Hitboxes: " .. hitbox
+        for _, otherBtn in pairs(hitboxMenu:GetChildren()) do
+            if otherBtn:IsA("TextButton") then
+                otherBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
+            end
+        end
+        btn.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+        hitboxMenuOpen = false
+        hitboxMenu.Visible = false
+        local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+        TweenService:Create(hitboxMenu, tweenInfo, {BackgroundTransparency = 1}):Play()
+        for _, otherBtn in pairs(hitboxMenu:GetChildren()) do
+            if otherBtn:IsA("TextButton") then
+                TweenService:Create(otherBtn, tweenInfo, {BackgroundTransparency = 1, TextTransparency = 1}):Play()
+            end
+        end
+    end)
+end
+
+-- Targeting Method Dropdown
+local targetingButton = createButton(aimbotContent, "Targeting: " .. aimbotSettings.targetingMethod, 0.3, function()
+    local targetingMenu = Instance.new("Frame")
+    targetingMenu.Parent = aimbotContent
+    targetingMenu.Size = UDim2.new(0, 150, 0, 60)
+    targetingMenu.Position = UDim2.new(0.1, 0, 0.35, 0)
+    targetingMenu.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+    targetingMenu.BackgroundTransparency = 0.3
+    
+    local targetingMenuCorner = Instance.new("UICorner")
+    targetingMenuCorner.CornerRadius = UDim.new(0, 6)
+    targetingMenuCorner.Parent = targetingMenu
+    
+    local targetingMenuStroke = Instance.new("UIStroke")
+    targetingMenuStroke.Thickness = 1
+    targetingMenuStroke.Color = Color3.new(0.6, 0.6, 0.6)
+    targetingMenuStroke.Parent = targetingMenu
+    
+    local targetingList = {"Nearest", "Locked"}
+    for i, method in ipairs(targetingList) do
+        local btn = Instance.new("TextButton")
+        btn.Parent = targetingMenu
+        btn.Size = UDim2.new(0, 140, 0, 25)
+        btn.Position = UDim2.new(0.033, 0, (i-1) * 0.5 + 0.05, 0)
+        btn.Text = method
+        btn.TextColor3 = Color3.new(1, 1, 1)
+        btn.BackgroundColor3 = aimbotSettings.targetingMethod == method and Color3.fromRGB(255, 165, 0) or Color3.new(0.3, 0.3, 0.3)
+        btn.BackgroundTransparency = 0.2
+        btn.TextSize = 14
+        btn.Font = Enum.Font.Gotham
+        
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 4)
+        btnCorner.Parent = btn
+        
+        btn.MouseButton1Click:Connect(function()
+            aimbotSettings.targetingMethod = method
+            aimbotSettings.lockedTarget = nil
+            targetingButton.Text = "Targeting: " .. method
+            for _, otherBtn in pairs(targetingMenu:GetChildren()) do
+                if otherBtn:IsA("TextButton") then
+                    otherBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
+                end
+            end
+            btn.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+            targetingMenu:Destroy()
+        end)
+    end
+    
+    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+    TweenService:Create(targetingMenu, tweenInfo, {BackgroundTransparency = 0.3}):Play()
+    for _, btn in pairs(targetingMenu:GetChildren()) do
+        if btn:IsA("TextButton") then
+            TweenService:Create(btn, tweenInfo, {BackgroundTransparency = 0.2, TextTransparency = 0}):Play()
+        end
+    end
+end)
+
 -- FOV Input
 local fovLabel = Instance.new("TextLabel")
 fovLabel.Parent = aimbotContent
 fovLabel.Size = UDim2.new(0, 180, 0, 20)
-fovLabel.Position = UDim2.new(0.1, 0, 0.65, 0)
+fovLabel.Position = UDim2.new(0.1, 0, 0.4, 0)
 fovLabel.Text = "FOV Angle: " .. aimbotSettings.fovAngle
 fovLabel.TextColor3 = Color3.new(1, 1, 1)
 fovLabel.TextSize = 16
@@ -245,7 +450,7 @@ fovLabel.BackgroundTransparency = 1
 local fovInput = Instance.new("TextBox")
 fovInput.Parent = aimbotContent
 fovInput.Size = UDim2.new(0, 180, 0, 30)
-fovInput.Position = UDim2.new(0.1, 0, 0.7, 0)
+fovInput.Position = UDim2.new(0.1, 0, 0.45, 0)
 fovInput.Text = tostring(aimbotSettings.fovAngle)
 fovInput.TextColor3 = Color3.new(1, 1, 1)
 fovInput.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
@@ -270,42 +475,11 @@ fovInput.Changed:Connect(function()
     end
 end)
 
--- Aim Hitboxes
-local aimHitboxLabel = Instance.new("TextLabel")
-aimHitboxLabel.Parent = aimbotContent
-aimHitboxLabel.Size = UDim2.new(0, 180, 0, 20)
-aimHitboxLabel.Position = UDim2.new(0.1, 0, 0.1, 0)
-aimHitboxLabel.Text = "Aim Hitboxes"
-aimHitboxLabel.TextColor3 = Color3.new(1, 1, 1)
-aimHitboxLabel.TextSize = 16
-aimHitboxLabel.Font = Enum.Font.Gotham
-aimHitboxLabel.BackgroundTransparency = 1
-
-local hitboxButtons = {}
-local hitboxYScale = 0.2
-for i, hitbox in pairs({"Head", "Torso", "LeftArm", "RightArm", "LeftLeg", "RightLeg"}) do
-    local btn = createButton(aimbotContent, hitbox, hitboxYScale, function()
-        local index = table.find(aimbotSettings.selectedHitboxes, hitbox)
-        if index then
-            table.remove(aimbotSettings.selectedHitboxes, index)
-            btn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
-        else
-            aimbotSettings.selectedHitboxes = {hitbox}
-            for _, button in pairs(hitboxButtons) do
-                button.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
-            end
-            btn.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
-        end
-    end)
-    btn.Position = UDim2.new(0.1 + ((i-1) % 3) * 0.25, 0, 0.2 + math.floor((i-1)/3) * 0.1, 0)
-    table.insert(hitboxButtons, btn)
-end
-
 -- Smoothness Slider
 local smoothnessLabel = Instance.new("TextLabel")
 smoothnessLabel.Parent = aimbotContent
 smoothnessLabel.Size = UDim2.new(0, 180, 0, 20)
-smoothnessLabel.Position = UDim2.new(0.1, 0, 0.5, 0)
+smoothnessLabel.Position = UDim2.new(0.1, 0, 0.55, 0)
 smoothnessLabel.Text = "Smoothness: " .. math.floor(aimbotSettings.smoothness * 100) .. "%"
 smoothnessLabel.TextColor3 = Color3.new(1, 1, 1)
 smoothnessLabel.TextSize = 16
@@ -315,7 +489,7 @@ smoothnessLabel.BackgroundTransparency = 1
 local smoothnessSlider = Instance.new("TextButton")
 smoothnessSlider.Parent = aimbotContent
 smoothnessSlider.Size = UDim2.new(0, 180, 0, 20)
-smoothnessSlider.Position = UDim2.new(0.1, 0, 0.55, 0)
+smoothnessSlider.Position = UDim2.new(0.1, 0, 0.6, 0)
 smoothnessSlider.Text = ""
 smoothnessSlider.BackgroundColor3 = Color3.new(0.4, 0.4, 0.4)
 smoothnessSlider.BackgroundTransparency = 0.3
@@ -331,11 +505,11 @@ sliderStroke.Thickness = 1
 sliderStroke.Color = Color3.new(0.6, 0.6, 0.6)
 sliderStroke.Parent = smoothnessSlider
 
-smoothnessSlider.MouseButton1Down:Connect(function(input)
+smoothnessSlider.MouseButton1Down:Connect(function()
     local connection
     connection = RunService.RenderStepped:Connect(function()
         local mousePos = UserInputService:GetMouseLocation()
-        local relativePos = (mousePos - Vector2.new(Frame.AbsolutePosition.X + 40, Frame.AbsolutePosition.Y + 220)).X / 180
+        local relativePos = (mousePos - Vector2.new(Frame.AbsolutePosition.X + 40, Frame.AbsolutePosition.Y + 240)).X / 180
         aimbotSettings.smoothness = math.clamp(relativePos, 0, 1)
         smoothnessLabel.Text = "Smoothness: " .. math.floor(aimbotSettings.smoothness * 100) .. "%"
         if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
@@ -348,14 +522,14 @@ end)
 local autoPeakModeLabel = Instance.new("TextLabel")
 autoPeakModeLabel.Parent = miscContent
 autoPeakModeLabel.Size = UDim2.new(0, 180, 0, 20)
-autoPeakModeLabel.Position = UDim2.new(0.1, 0, 0.65, 0)
+autoPeakModeLabel.Position = UDim2.new(0.1, 0, 0.55, 0)
 autoPeakModeLabel.Text = "Auto Peak Return: " .. miscSettings.AutoPeakReturnMode
 autoPeakModeLabel.TextColor3 = Color3.new(1, 1, 1)
 autoPeakModeLabel.TextSize = 16
 autoPeakModeLabel.Font = Enum.Font.Gotham
 autoPeakModeLabel.BackgroundTransparency = 1
 
-local autoPeakModeButton = createButton(miscContent, "Toggle Return Mode", 0.7, function()
+local autoPeakModeButton = createButton(miscContent, "Toggle Return Mode", 0.6, function()
     miscSettings.AutoPeakReturnMode = miscSettings.AutoPeakReturnMode == "KeyRelease" and "Shoot" or "KeyRelease"
     autoPeakModeLabel.Text = "Auto Peak Return: " .. miscSettings.AutoPeakReturnMode
 end)
@@ -365,13 +539,14 @@ createCheckbox(espContent, "ESP Enabled", 0.1, espSettings.Enabled, function(val
 createCheckbox(espContent, "Toggle Names", 0.2, espSettings.ShowNames, function(val) espSettings.ShowNames = val end)
 createCheckbox(espContent, "Toggle HP", 0.3, espSettings.ShowHP, function(val) espSettings.ShowHP = val end)
 createCheckbox(espContent, "Toggle Highlight", 0.4, espSettings.Highlight, function(val) espSettings.Highlight = val end)
-createCheckbox(espContent, "Team ESP On/Off", 0.5, espSettings.Team.Enabled, function(val) espSettings.Team.Enabled = val end)
-createCheckbox(espContent, "Enemy ESP On/Off", 0.6, espSettings.Enemy.Enabled, function(val) espSettings.Enemy.Enabled = val end)
+createCheckbox(espContent, "Toggle Tracers", 0.5, espSettings.TracersEnabled, function(val) espSettings.TracersEnabled = val end)
+createCheckbox(espContent, "Team ESP On/Off", 0.6, espSettings.Team.Enabled, function(val) espSettings.Team.Enabled = val end)
+createCheckbox(espContent, "Enemy ESP On/Off", 0.7, espSettings.Enemy.Enabled, function(val) espSettings.Enemy.Enabled = val end)
 
 local teamColorInput = Instance.new("TextBox")
 teamColorInput.Parent = espContent
 teamColorInput.Size = UDim2.new(0, 180, 0, 30)
-teamColorInput.Position = UDim2.new(0.1, 0, 0.7, 0)
+teamColorInput.Position = UDim2.new(0.1, 0, 0.8, 0)
 teamColorInput.Text = "Team Color (R,G,B)"
 teamColorInput.TextColor3 = Color3.new(1, 1, 1)
 teamColorInput.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
@@ -399,7 +574,7 @@ end)
 local enemyColorInput = Instance.new("TextBox")
 enemyColorInput.Parent = espContent
 enemyColorInput.Size = UDim2.new(0, 180, 0, 30)
-enemyColorInput.Position = UDim2.new(0.1, 0, 0.8, 0)
+enemyColorInput.Position = UDim2.new(0.1, 0, 0.9, 0)
 enemyColorInput.Text = "Enemy Color (R,G,B)"
 enemyColorInput.TextColor3 = Color3.new(1, 1, 1)
 enemyColorInput.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
@@ -425,9 +600,13 @@ enemyColorInput.Changed:Connect(function()
 end)
 
 -- Чекбоксы для Aimbot
-createCheckbox(aimbotContent, "Aimbot Enabled", 0.1, aimbotSettings.Enabled, function(val) aimbotSettings.Enabled = val end)
-createCheckbox(aimbotContent, "Auto Stop", 0.2, aimbotSettings.autoStopEnabled, function(val) aimbotSettings.autoStopEnabled = val end)
-createCheckbox(aimbotContent, "No Spread", 0.3, aimbotSettings.noSpreadEnabled, function(val) aimbotSettings.noSpreadEnabled = val end)
+createCheckbox(aimbotContent, "Aimbot Enabled", 0.1, aimbotSettings.Enabled, function(val)
+    aimbotSettings.Enabled = val
+    if not val then
+        aimbotSettings.lockedTarget = nil
+    end
+end)
+createCheckbox(aimbotContent, "Auto Stop", 0.65, aimbotSettings.autoStopEnabled, function(val) aimbotSettings.autoStopEnabled = val end)
 
 -- Чекбоксы и кнопки для Misc
 createCheckbox(miscContent, "Toggle BHop", 0.1, miscSettings.BHopEnabled, function(val) miscSettings.BHopEnabled = val end)
@@ -440,52 +619,14 @@ local teleportBindButton = createButton(miscContent, "Change Teleport Bind: " ..
         miscSettings.TeleportBind = userInput.KeyCode
         teleportBindButton.Text = "Change Teleport Bind: " .. userInput.KeyCode.Name
     end
-end)
+end, Enum.Font.GothamBlack)
 
-local walkSpeedLabel = Instance.new("TextLabel")
-walkSpeedLabel.Parent = miscContent
-walkSpeedLabel.Size = UDim2.new(0, 180, 0, 20)
-walkSpeedLabel.Position = UDim2.new(0.1, 0, 0.5, 0)
-walkSpeedLabel.Text = "WalkSpeed: " .. miscSettings.WalkSpeed
-walkSpeedLabel.TextColor3 = Color3.new(1, 1, 1)
-walkSpeedLabel.TextSize = 16
-walkSpeedLabel.Font = Enum.Font.Gotham
-walkSpeedLabel.BackgroundTransparency = 1
-
-local walkSpeedInput = Instance.new("TextBox")
-walkSpeedInput.Parent = miscContent
-walkSpeedInput.Size = UDim2.new(0, 180, 0, 30)
-walkSpeedInput.Position = UDim2.new(0.1, 0, 0.55, 0)
-walkSpeedInput.Text = tostring(miscSettings.WalkSpeed)
-walkSpeedInput.TextColor3 = Color3.new(1, 1, 1)
-walkSpeedInput.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
-walkSpeedInput.BackgroundTransparency = 0.3
-walkSpeedInput.TextSize = 14
-walkSpeedInput.Font = Enum.Font.Gotham
-
-local inputWalkCorner = Instance.new("UICorner")
-inputWalkCorner.CornerRadius = UDim.new(0, 6)
-inputWalkCorner.Parent = walkSpeedInput
-
-local inputWalkStroke = Instance.new("UIStroke")
-inputWalkStroke.Thickness = 1
-inputWalkStroke.Color = Color3.new(0.6, 0.6, 0.6)
-inputWalkStroke.Parent = walkSpeedInput
-
-walkSpeedInput.Changed:Connect(function()
-    local speed = tonumber(walkSpeedInput.Text)
-    if speed then
-        miscSettings.WalkSpeed = math.clamp(speed, 16, 100)
-        walkSpeedLabel.Text = "WalkSpeed: " .. miscSettings.WalkSpeed
-    end
-end)
-
-local altButton = createButton(miscContent, "Alt Toggle", 0.8, function()
+local altButton = createButton(miscContent, "Alt Toggle", 0.65, function()
     altButtonActive = not altButtonActive
     altButton.BackgroundColor3 = altButtonActive and Color3.fromRGB(255, 165, 0) or Color3.new(0.3, 0.3, 0.3)
 end)
 
-createCheckbox(miscContent, "Toggle Third Person", 0.9, miscSettings.ThirdPersonEnabled, function(val)
+createCheckbox(miscContent, "Toggle Third Person", 0.75, miscSettings.ThirdPersonEnabled, function(val)
     miscSettings.ThirdPersonEnabled = val
     thirdPersonState = val
     if val then
@@ -497,7 +638,7 @@ createCheckbox(miscContent, "Toggle Third Person", 0.9, miscSettings.ThirdPerson
     end
 end)
 
-local thirdPersonBindButton = createButton(miscContent, "Change ThirdPerson Bind: " .. miscSettings.ThirdPersonBind.Name, 1.0, function()
+local thirdPersonBindButton = createButton(miscContent, "Change ThirdPerson Bind: " .. miscSettings.ThirdPersonBind.Name, 0.8, function()
     local userInput = UserInputService.InputBegan:Wait()
     if userInput.UserInputType == Enum.UserInputType.Keyboard or userInput.UserInputType.Name:match("MouseButton") then
         miscSettings.ThirdPersonBind = userInput.UserInputType == Enum.UserInputType.Keyboard and userInput.KeyCode or userInput.UserInputType
@@ -513,67 +654,125 @@ createCheckbox(otherContent, "Unhook Cheats", 0.1, miscSettings.UnhookEnabled, f
     end
 end)
 
--- Spinbot Settings
-createCheckbox(antiAimContent, "Spinbot Enabled", 0.1, antiAimSettings.Enabled, function(val) antiAimSettings.Enabled = val end)
+-- Remove Flash in Visual tab
+createCheckbox(visualContent, "Remove Flash", 0.1, visualSettings.RemoveFlashEnabled, function(val)
+    visualSettings.RemoveFlashEnabled = val
+end)
 
-local spinSpeedLabel = Instance.new("TextLabel")
-spinSpeedLabel.Parent = antiAimContent
-spinSpeedLabel.Size = UDim2.new(0, 180, 0, 20)
-spinSpeedLabel.Position = UDim2.new(0.1, 0, 0.2, 0)
-spinSpeedLabel.Text = "Spin Speed: " .. antiAimSettings.SpinSpeed
-spinSpeedLabel.TextColor3 = Color3.new(1, 1, 1)
-spinSpeedLabel.TextSize = 16
-spinSpeedLabel.Font = Enum.Font.Gotham
-spinSpeedLabel.BackgroundTransparency = 1
+-- Weapon Tab Controls
+createCheckbox(weaponContent, "No Spread", 0.1, weaponSettings.NoSpreadEnabled, function(val) weaponSettings.NoSpreadEnabled = val end)
+createCheckbox(weaponContent, "Wall Hack", 0.2, weaponSettings.WallHackEnabled, function(val)
+    weaponSettings.WallHackEnabled = val
+    updateWeaponSettings()
+end)
+createCheckbox(weaponContent, "Custom Ammo", 0.3, weaponSettings.CustomAmmoEnabled, function(val)
+    weaponSettings.CustomAmmoEnabled = val
+    updateWeaponSettings()
+end)
+createCheckbox(weaponContent, "Custom Damage", 0.4, weaponSettings.CustomDamageEnabled, function(val)
+    weaponSettings.CustomDamageEnabled = val
+    updateWeaponSettings()
+end)
 
-local spinSpeedInput = Instance.new("TextBox")
-spinSpeedInput.Parent = antiAimContent
-spinSpeedInput.Size = UDim2.new(0, 180, 0, 30)
-spinSpeedInput.Position = UDim2.new(0.1, 0, 0.25, 0)
-spinSpeedInput.Text = tostring(antiAimSettings.SpinSpeed)
-spinSpeedInput.TextColor3 = Color3.new(1, 1, 1)
-spinSpeedInput.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
-spinSpeedInput.BackgroundTransparency = 0.3
-spinSpeedInput.TextSize = 14
-spinSpeedInput.Font = Enum.Font.Gotham
+local lockAmmoButton = createButton(weaponContent, "Lock Ammo", 0.5, function()
+    weaponSettings.LockedAmmo = not weaponSettings.LockedAmmo
+    lockAmmoButton.BackgroundColor3 = weaponSettings.LockedAmmo and Color3.fromRGB(255, 165, 0) or Color3.new(0.3, 0.3, 0.3)
+    updateWeaponSettings()
+end)
 
-local spinInputCorner = Instance.new("UICorner")
-spinInputCorner.CornerRadius = UDim.new(0, 6)
-spinInputCorner.Parent = spinSpeedInput
+local damageInputLabel = Instance.new("TextLabel")
+damageInputLabel.Parent = weaponContent
+damageInputLabel.Size = UDim2.new(0, 180, 0, 20)
+damageInputLabel.Position = UDim2.new(0.1, 0, 0.6, 0)
+damageInputLabel.Text = "Damage: " .. weaponSettings.CustomDamageValue
+damageInputLabel.TextColor3 = Color3.new(1, 1, 1)
+damageInputLabel.TextSize = 16
+damageInputLabel.Font = Enum.Font.Gotham
+damageInputLabel.BackgroundTransparency = 1
 
-local spinInputStroke = Instance.new("UIStroke")
-spinInputStroke.Thickness = 1
-spinInputStroke.Color = Color3.new(0.6, 0.6, 0.6)
-spinInputStroke.Parent = spinSpeedInput
+local damageInput = Instance.new("TextBox")
+damageInput.Parent = weaponContent
+damageInput.Size = UDim2.new(0, 180, 0, 30)
+damageInput.Position = UDim2.new(0.1, 0, 0.65, 0)
+damageInput.Text = tostring(weaponSettings.CustomDamageValue)
+damageInput.TextColor3 = Color3.new(1, 1, 1)
+damageInput.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+damageInput.BackgroundTransparency = 0.3
+damageInput.TextSize = 14
+damageInput.Font = Enum.Font.Gotham
 
-spinSpeedInput.Changed:Connect(function()
-    local speed = tonumber(spinSpeedInput.Text)
-    if speed then
-        antiAimSettings.SpinSpeed = math.clamp(speed, 0, 720)
-        spinSpeedLabel.Text = "Spin Speed: " .. antiAimSettings.SpinSpeed
+local damageInputCorner = Instance.new("UICorner")
+damageInputCorner.CornerRadius = UDim.new(0, 6)
+damageInputCorner.Parent = damageInput
+
+local damageInputStroke = Instance.new("UIStroke")
+damageInputStroke.Thickness = 1
+damageInputStroke.Color = Color3.new(0.6, 0.6, 0.6)
+damageInputStroke.Parent = damageInput
+
+damageInput.Changed:Connect(function()
+    local damage = tonumber(damageInput.Text)
+    if damage then
+        weaponSettings.CustomDamageValue = math.clamp(damage, 1, 1000)
+        damageInputLabel.Text = "Damage: " .. weaponSettings.CustomDamageValue
+        updateWeaponSettings()
     end
 end)
+
+local function updateWeaponSettings()
+    local weapons = game:GetService("ReplicatedStorage"):FindFirstChild("Weapons")
+    if not weapons then return end
+    for _, weapon in pairs(weapons:GetChildren()) do
+        -- weapon может быть Tool или Model, ищем NumberValue Spread
+        local spread = weapon:FindFirstChild("Spread")
+        if spread and spread:IsA("NumberValue") then
+            if weaponSettings.NoSpreadEnabled then
+                spread.Value = 0
+                -- Если внутри Spread есть дочерние NumberValue, тоже ставим их в 0
+                for _, child in pairs(spread:GetChildren()) do
+                    if child:IsA("NumberValue") then
+                        child.Value = 0
+                    end
+                end
+            end
+        end
+    end
+end
 
 local function switchTab(activeFrame)
     aimbotContent.Visible = false
     espContent.Visible = false
     miscContent.Visible = false
     otherContent.Visible = false
-    antiAimContent.Visible = false
+    visualContent.Visible = false
+    weaponContent.Visible = false
     activeFrame.Visible = true
+    hitboxMenuOpen = false
+    hitboxMenu.Visible = false
+    hitboxMenu.BackgroundTransparency = 1
+    for _, btn in pairs(hitboxMenu:GetChildren()) do
+        if btn:IsA("TextButton") then
+            btn.BackgroundTransparency = 1
+            btn.TextTransparency = 1
+        end
+    end
 end
 
 aimbotTab.MouseButton1Click:Connect(function() switchTab(aimbotContent) end)
 espTab.MouseButton1Click:Connect(function() switchTab(espContent) end)
 miscTab.MouseButton1Click:Connect(function() switchTab(miscContent) end)
 otherTab.MouseButton1Click:Connect(function() switchTab(otherContent) end)
-antiAimTab.MouseButton1Click:Connect(function() switchTab(antiAimContent) end)
+visualTab.MouseButton1Click:Connect(function() switchTab(visualContent) end)
+weaponTab.MouseButton1Click:Connect(function() switchTab(weaponContent) end)
 
--- Walkspeed loop
+-- Flashbang Removal Loop
 spawn(function()
     while RunService.RenderStepped:Wait() do
-        if player.Character and player.Character:FindFirstChild("Humanoid") and not miscSettings.UnhookEnabled then
-            player.Character.Humanoid.WalkSpeed = miscSettings.WalkSpeed
+        if visualSettings.RemoveFlashEnabled and not miscSettings.UnhookEnabled then
+            local flashbang = player.PlayerGui:FindFirstChild("GUI") and player.PlayerGui.GUI:FindFirstChild("Flashbang")
+            if flashbang and flashbang.BackgroundTransparency < 1 then
+                flashbang.BackgroundTransparency = 1
+            end
         end
     end
 end)
@@ -618,22 +817,24 @@ local function unhookCheats()
     miscSettings.AutoPeakEnabled = false
     miscSettings.TeleportEnabled = false
     miscSettings.ThirdPersonEnabled = false
-    antiAimSettings.Enabled = false
+    visualSettings.RemoveFlashEnabled = false
+    espSettings.TracersEnabled = false
+    weaponSettings.NoSpreadEnabled = false
+    weaponSettings.WallHackEnabled = false
+    weaponSettings.CustomAmmoEnabled = false
+    weaponSettings.LockedAmmo = false
+    weaponSettings.CustomDamageEnabled = false
     
     player.CameraMode = Enum.CameraMode.Classic
     player.CameraMinZoomDistance = 0.5
     player.CameraMaxZoomDistance = 128
-    
-    if player.Character and player.Character:FindFirstChild("Humanoid") then
-        player.Character.Humanoid.WalkSpeed = 16
-    end
     
     ScreenGui:Destroy()
     
     for _, otherPlayer in pairs(players:GetPlayers()) do
         if otherPlayer ~= player and otherPlayer.Character then
             for _, obj in pairs(otherPlayer.Character:GetChildren()) do
-                if obj.Name == "NameBillboard" or obj.Name == "HpBillboard" or obj:IsA("Highlight") then
+                if obj.Name == "NameBillboard" or obj.Name == "HpBillboard" or obj.Name == "TracerBeam" or obj:IsA("Highlight") then
                     obj:Destroy()
                 end
             end
@@ -675,11 +876,20 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.Insert and not gameProcessed then
         menuVisible = not menuVisible
         Frame.Visible = menuVisible
+        hitboxMenuOpen = false
+        hitboxMenu.Visible = false
+        hitboxMenu.BackgroundTransparency = 1
+        for _, btn in pairs(hitboxMenu:GetChildren()) do
+            if btn:IsA("TextButton") then
+                btn.BackgroundTransparency = 1
+                btn.TextTransparency = 1
+            end
+        end
     elseif (input.KeyCode == miscSettings.ThirdPersonBind or input.UserInputType == miscSettings.ThirdPersonBind) and not gameProcessed then
         miscSettings.ThirdPersonEnabled = not miscSettings.ThirdPersonEnabled
         thirdPersonState = miscSettings.ThirdPersonEnabled
         for _, child in pairs(miscContent:GetChildren()) do
-            if child:IsA("TextButton") and child.Position.Y.Scale == 0.9 then
+            if child:IsA("TextButton") and child.Position.Y.Scale == 0.75 then
                 child.BackgroundColor3 = miscSettings.ThirdPersonEnabled and Color3.fromRGB(255, 165, 0) or Color3.new(0.3, 0.3, 0.3)
             end
         end
@@ -737,7 +947,44 @@ local function canHitPart(startPos, targetPart)
     return false
 end
 
+local function getClosestToCrosshair()
+    local closestPlayer, closestAngle = nil, math.huge
+    local mousePos = UserInputService:GetMouseLocation()
+    for _, otherPlayer in pairs(game.Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character then
+            local humanoid = otherPlayer.Character:FindFirstChild("Humanoid")
+            if humanoid and humanoid.Health > 0 and not isSameTeam(otherPlayer) then
+                local head = otherPlayer.Character:FindFirstChild("Head")
+                if head and isValidPosition(head.Position) and isInFOV(head.Position) then
+                    local screenPos, onScreen = camera:WorldToViewportPoint(head.Position)
+                    if onScreen then
+                        local angle = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                        if angle < closestAngle then
+                            closestAngle = angle
+                            closestPlayer = otherPlayer
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
 local function getBestEnemyInFOV()
+    if aimbotSettings.targetingMethod == "Locked" and aimbotSettings.lockedTarget then
+        local target = aimbotSettings.lockedTarget
+        if target.Character and target.Character:FindFirstChild("Humanoid") and target.Character.Humanoid.Health > 0 then
+            local head = target.Character:FindFirstChild("Head")
+            if head and isValidPosition(head.Position) and isInFOV(head.Position) then
+                local playerPos = camera.CFrame.Position
+                local blocked = isWallBetween(playerPos, head.Position)
+                return target, not blocked
+            end
+        end
+        aimbotSettings.lockedTarget = nil
+    end
+
     local nearestVisible, nearestVisibleDist = nil, math.huge
     local nearestInvisible, nearestInvisibleDist = nil, math.huge
 
@@ -769,6 +1016,12 @@ local function getBestEnemyInFOV()
         end
     end
 
+    if aimbotSettings.targetingMethod == "Locked" and nearestVisible then
+        aimbotSettings.lockedTarget = nearestVisible
+    elseif aimbotSettings.targetingMethod == "Locked" and nearestInvisible then
+        aimbotSettings.lockedTarget = nearestInvisible
+    end
+
     if nearestVisible then
         return nearestVisible, true
     elseif nearestInvisible then
@@ -782,8 +1035,8 @@ local function getBestJumpAim(targetPart)
     local playerPos = camera.CFrame.Position
 
     for i = 1, aimbotSettings.jumpAimVariants do
-        local randomAngleX = math.rad(math.random(-1, 1) * 0.05)
-        local randomAngleY = math.rad(math.random(-1, 1) * 0.05)
+        local randomAngleX = math.rad(math.random(-1, 1) * 0.01)
+        local randomAngleY = math.rad(math.random(-1, 1) * 0.01)
         local aimDir = (targetPart.Position - playerPos).Unit
         aimDir = CFrame.Angles(randomAngleX, randomAngleY, 0) * aimDir
         local aimPos = playerPos + aimDir * (targetPart.Position - playerPos).Magnitude
@@ -799,29 +1052,13 @@ local function getBestJumpAim(targetPart)
     return bestAimPos
 end
 
-local function applySpinbot(character)
-    if not antiAimSettings.Enabled or not character or miscSettings.UnhookEnabled then return end
-    local humanoid = character:FindFirstChild("Humanoid")
-    local head = character:FindFirstChild("Head")
-    if not humanoid or not head then return end
-
-    local currentTime = tick()
-    local angle = (currentTime * antiAimSettings.SpinSpeed) % 360
-    humanoid.AutoRotate = false
-    if humanoid and humanoid.RootPart then
-        humanoid.RootPart.CFrame = CFrame.new(humanoid.RootPart.Position) * CFrame.Angles(0, math.rad(angle), 0)
-    end
-    if head then
-        head.CFrame = CFrame.new(head.Position) * CFrame.Angles(math.rad(-90), 0, 0)
-    end
-end
-
 local function aimBot()
     if not aimbotSettings.Enabled or miscSettings.UnhookEnabled then return end
     local char = player.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     local humanoid = char and char:FindFirstChild("Humanoid")
     if not root or not root.Parent or not humanoid or humanoid.Health <= 0 then
+        aimbotSettings.lockedTarget = nil
         return
     end
 
@@ -830,6 +1067,10 @@ local function aimBot()
     lastUpdateTime = currentTime
 
     isJumping = humanoid:GetState() == Enum.HumanoidStateType.Jumping or humanoid:GetState() == Enum.HumanoidStateType.Freefall
+
+    if aimbotSettings.targetingMethod == "Locked" and not aimbotSettings.lockedTarget then
+        aimbotSettings.lockedTarget = getClosestToCrosshair()
+    end
 
     local bestEnemy, isVisible = getBestEnemyInFOV()
     if bestEnemy and bestEnemy.Character then
@@ -892,21 +1133,11 @@ local function aimBot()
                         end)
                     end
                 end
-
-                -- No Spread
-                if aimbotSettings.noSpreadEnabled and currentTime - lastNoSpreadTime >= aimbotSettings.noSpreadDuration then
-                    local torso = player.Character and player.Character:FindFirstChild("Torso")
-                    if torso then
-                        torso.Anchored = true
-                        task.wait(aimbotSettings.noSpreadDuration)
-                        torso.Anchored = false
-                        lastNoSpreadTime = currentTime
-                    end
-                end
             end
         end
     else
         targetCFrame = camera.CFrame
+        aimbotSettings.lockedTarget = nil
     end
 end
 
@@ -925,6 +1156,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                 humanoid.Jump = true
                 isJumping = true
                 lastJumpTime = currentTime
+                humanoid.WalkSpeed = 100
             end
         end
     elseif input.KeyCode == Enum.KeyCode.LeftAlt and not gameProcessed and miscSettings.AutoPeakEnabled and player.Character then
@@ -1019,9 +1251,7 @@ RunService.Heartbeat:Connect(function()
     end
     if not miscSettings.UnhookEnabled then
         aimBot()
-        if player.Character then
-            applySpinbot(player.Character)
-        end
+        updateWeaponSettings()
     end
 end)
 
@@ -1036,6 +1266,7 @@ player.CharacterAdded:Connect(function(character)
                     character.Humanoid.Jump = true
                     isJumping = true
                     lastJumpTime = currentTime
+                    character.Humanoid.WalkSpeed = 100
                 elseif isJumping and character.Humanoid then
                     isJumping = false
                 end
@@ -1053,29 +1284,30 @@ end)
 RunService.Heartbeat:Connect(function()
     if miscSettings.BHopEnabled and player.Character and player.Character:FindFirstChild("Humanoid") and isJumping and player.Character.Humanoid.FloorMaterial == Enum.Material.Air then
         local humanoid = player.Character.Humanoid
-        if humanoid.WalkSpeed ~= 130 then
-            humanoid.WalkSpeed = 130
+        if humanoid.WalkSpeed ~= 100 then
+            humanoid.WalkSpeed = 100
         end
+    elseif player.Character and player.Character:FindFirstChild("Humanoid") and not miscSettings.BHopEnabled then
+        player.Character.Humanoid.WalkSpeed = miscSettings.WalkSpeed
     end
     if player.Character and player.Character:FindFirstChild("Humanoid") then
         playerWalkSpeed = player.Character.Humanoid.WalkSpeed
     end
 end)
 
-local function updateAllVisuals()
-    if miscSettings.UnhookEnabled then return end
-    for _, otherPlayer in pairs(players:GetPlayers()) do
-        if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("Humanoid") then
-            addVisualsToCharacter(otherPlayer.Character, otherPlayer)
-        end
-    end
-end
+-- Список оружия (добавь в начало файла, до всех функций)
+local weaponList = {
+    "AK47", "AUG", "AWP", "Bizon", "DesertEagle", "DualBerettas", "Famas", "FiveSeven", 
+    "G3SG1", "Galil", "Glock", "M249", "M4A1", "M4A4", "MAC10", "MAG7", "MP7", 
+    "MP7-SD", "MP9", "Negev", "Nova", "P2000", "P250", "P90", "R8", "SG", 
+    "SawedOff", "Scout", "Tec9", "UMP", "USP", "XM"
+}
 
 local function addVisualsToCharacter(character, otherPlayer)
     if not character or not character:FindFirstChild("Humanoid") or character == player.Character or not espSettings.Enabled or miscSettings.UnhookEnabled then
         if character and character ~= player.Character then
             for _, obj in pairs(character:GetChildren()) do
-                if obj.Name == "NameBillboard" or obj.Name == "HpBillboard" or obj:IsA("Highlight") then
+                if obj.Name == "NameBillboard" or obj.Name == "HpBillboard" or obj.Name == "TracerBeam" or obj:IsA("Highlight") then
                     obj:Destroy()
                 end
             end
@@ -1085,164 +1317,188 @@ local function addVisualsToCharacter(character, otherPlayer)
 
     local head = character:FindFirstChild("Head")
     local humanoid = character:FindFirstChild("Humanoid")
-    if not head or not humanoid then return end
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not head or not humanoid or not rootPart then return end
 
-    for _, obj in pairs(character:GetChildren()) do
-        if obj.Name == "NameBillboard" or obj.Name == "HpBillboard" or obj:IsA("Highlight") then
-            obj:Destroy()
-        end
-    end
+    local teamColor = isSameTeam(otherPlayer) and espSettings.Team.Color or espSettings.Enemy.Color
+    local isTeamEnabled = isSameTeam(otherPlayer) and espSettings.Team.Enabled or espSettings.Enemy.Enabled
 
-    if espSettings.Highlight then
-        local highlight = Instance.new("Highlight")
-        highlight.Name = "ESPHighlight"
-        if otherPlayer.Team == player.Team then
-            if espSettings.Team.Enabled then
-                highlight.FillColor = espSettings.Team.Color
-                highlight.OutlineColor = Color3.fromRGB(0, 0, 0)
-                highlight.OutlineTransparency = 0
-            else
-                highlight:Destroy()
-                return
-            end
-        else
-            if espSettings.Enemy.Enabled then
-                highlight.FillColor = espSettings.Enemy.Color
-                highlight.OutlineColor = Color3.fromRGB(0, 0, 0)
-                highlight.OutlineTransparency = 0
-            else
-                highlight:Destroy()
-                return
+    if not isTeamEnabled then
+        for _, obj in pairs(character:GetChildren()) do
+            if obj.Name == "NameBillboard" or obj.Name == "HpBillboard" or obj.Name == "TracerBeam" or obj:IsA("Highlight") then
+                obj:Destroy()
             end
         end
-        highlight.FillTransparency = 0.7
-        highlight.Parent = character
+        return
     end
 
+    -- Name Billboard
     if espSettings.ShowNames then
-        local billboard = Instance.new("BillboardGui")
-        billboard.Name = "NameBillboard"
-        billboard.Adornee = head
-        billboard.Size = UDim2.new(0, 100, 0, 20)
-        billboard.StudsOffset = Vector3.new(0, 2, 0)
-        billboard.AlwaysOnTop = true
-        billboard.Parent = character
+        local nameBillboard = character:FindFirstChild("NameBillboard")
+        if not nameBillboard then
+            nameBillboard = Instance.new("BillboardGui")
+            nameBillboard.Name = "NameBillboard"
+            nameBillboard.Parent = character
+            nameBillboard.Adornee = head
+            nameBillboard.Size = UDim2.new(0, 100, 0, 30)
+            nameBillboard.StudsOffset = Vector3.new(0, 2, 0)
+            nameBillboard.AlwaysOnTop = true
 
-        local textLabel = Instance.new("TextLabel")
-        textLabel.Size = UDim2.new(1, 0, 1, 0)
-        textLabel.BackgroundTransparency = 1
-        textLabel.Text = otherPlayer.Name
-        textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        textLabel.TextScaled = false
-        textLabel.TextSize = 14
-        textLabel.Font = Enum.Font.Gotham
-        textLabel.TextXAlignment = Enum.TextXAlignment.Left
-        textLabel.Parent = billboard
-
-        local stroke = Instance.new("UIStroke")
-        stroke.Thickness = 2
-        stroke.Color = Color3.fromRGB(0, 0, 0)
-        stroke.Parent = textLabel
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Parent = nameBillboard
+            nameLabel.Size = UDim2.new(1, 0, 1, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = otherPlayer.Name
+            nameLabel.TextColor3 = teamColor
+            nameLabel.TextSize = 14
+            nameLabel.Font = Enum.Font.Gotham
+            nameLabel.TextStrokeTransparency = 0.5
+        end
+    else
+        local nameBillboard = character:FindFirstChild("NameBillboard")
+        if nameBillboard then
+            nameBillboard:Destroy()
+        end
     end
 
+    -- HP Billboard
     if espSettings.ShowHP then
-        local hpBillboard = Instance.new("BillboardGui")
-        hpBillboard.Name = "HpBillboard"
-        hpBillboard.Adornee = head
-        hpBillboard.Size = UDim2.new(0, 100, 0, 20)
-        hpBillboard.StudsOffset = Vector3.new(0, 1.5, 0)
-        hpBillboard.AlwaysOnTop = true
-        hpBillboard.Parent = character
+        local hpBillboard = character:FindFirstChild("HpBillboard")
+        if not hpBillboard then
+            hpBillboard = Instance.new("BillboardGui")
+            hpBillboard.Name = "HpBillboard"
+            hpBillboard.Parent = character
+            hpBillboard.Adornee = head
+            hpBillboard.Size = UDim2.new(0, 100, 0, 30)
+            hpBillboard.StudsOffset = Vector3.new(0, 1, 0)
+            hpBillboard.AlwaysOnTop = true
 
-        local hpLabel = Instance.new("TextLabel")
-        hpLabel.Size = UDim2.new(1, 0, 1, 0)
-        hpLabel.BackgroundTransparency = 1
-        hpLabel.Text = tostring(math.floor(humanoid.Health))
-        hpLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
-        hpLabel.TextScaled = false
-        hpLabel.TextSize = 14
-        hpLabel.Font = Enum.Font.Gotham
-        hpLabel.TextXAlignment = Enum.TextXAlignment.Left
-        hpLabel.Parent = hpBillboard
-
-        local hpStroke = Instance.new("UIStroke")
-        hpStroke.Thickness = 2
-        hpStroke.Color = Color3.fromRGB(0, 0, 0)
-        hpStroke.Parent = hpLabel
-
-        humanoid.HealthChanged:Connect(function(newHp)
-            if hpLabel and hpLabel.Parent then
-                hpLabel.Text = tostring(math.floor(newHp))
-                if newHp <= 25 then
-                    hpLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
-                elseif newHp <= 50 then
-                    hpLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
-                else
-                    hpLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
-                end
+            local hpLabel = Instance.new("TextLabel")
+            hpLabel.Parent = hpBillboard
+            hpLabel.Size = UDim2.new(1, 0, 1, 0)
+            hpLabel.BackgroundTransparency = 1
+            hpLabel.Text = "HP: " .. math.floor(humanoid.Health)
+            hpLabel.TextColor3 = teamColor
+            hpLabel.TextSize = 14
+            hpLabel.Font = Enum.Font.Gotham
+            hpLabel.TextStrokeTransparency = 0.5
+        else
+            local hpLabel = hpBillboard:FindFirstChildOfClass("TextLabel")
+            if hpLabel then
+                hpLabel.Text = "HP: " .. math.floor(humanoid.Health)
             end
-        end)
+        end
+    else
+        local hpBillboard = character:FindFirstChild("HpBillboard")
+        if hpBillboard then
+            hpBillboard:Destroy()
+        end
+    end
+
+    -- Highlight
+    if espSettings.Highlight then
+        local highlight = character:FindFirstChildOfClass("Highlight")
+        if not highlight then
+            highlight = Instance.new("Highlight")
+            highlight.Parent = character
+            highlight.Adornee = character
+            highlight.FillColor = teamColor
+            highlight.OutlineColor = teamColor
+            highlight.FillTransparency = 0.7
+            highlight.OutlineTransparency = 0
+        end
+    else
+        local highlight = character:FindFirstChildOfClass("Highlight")
+        if highlight then
+            highlight:Destroy()
+        end
+    end
+
+    -- Tracers
+    if espSettings.TracersEnabled then
+        local tracerBeam = character:FindFirstChild("TracerBeam")
+        if not tracerBeam then
+            tracerBeam = Instance.new("Beam")
+            tracerBeam.Name = "TracerBeam"
+            tracerBeam.Parent = character
+            tracerBeam.Color = ColorSequence.new(teamColor)
+            tracerBeam.Width0 = 0.1
+            tracerBeam.Width1 = 0.1
+            tracerBeam.LightEmission = 1
+            tracerBeam.LightInfluence = 0
+            tracerBeam.TextureMode = Enum.TextureMode.Stretch
+            tracerBeam.Enabled = true
+
+            local attachment0 = Instance.new("Attachment")
+            attachment0.Parent = camera
+            attachment0.WorldPosition = camera.CFrame.Position
+
+            local attachment1 = Instance.new("Attachment")
+            attachment1.Parent = rootPart
+            attachment1.WorldPosition = rootPart.Position
+
+            tracerBeam.Attachment0 = attachment0
+            tracerBeam.Attachment1 = attachment1
+        else
+            local attachment0 = tracerBeam.Attachment0
+            local attachment1 = tracerBeam.Attachment1
+            if attachment0 and attachment1 then
+                attachment0.WorldPosition = camera.CFrame.Position
+                attachment1.WorldPosition = rootPart.Position
+            end
+        end
+    else
+        local tracerBeam = character:FindFirstChild("TracerBeam")
+        if tracerBeam then
+            tracerBeam:Destroy()
+        end
     end
 end
 
-local function onPlayerAdded(newPlayer)
-    if newPlayer == player then return end
+local function updateAllVisuals()
+    for _, otherPlayer in pairs(players:GetPlayers()) do
+        if otherPlayer.Character then
+            addVisualsToCharacter(otherPlayer.Character, otherPlayer)
+        end
+    end
+end
 
+players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.CharacterAdded:Connect(function(character)
         task.wait(0.1)
-        if character and character:FindFirstChild("Humanoid") then
-            addVisualsToCharacter(character, newPlayer)
-        end
+        addVisualsToCharacter(character, newPlayer)
     end)
-
-    if newPlayer.Character and newPlayer.Character:FindFirstChild("Humanoid") then
-        addVisualsToCharacter(newPlayer.Character, newPlayer)
-    end
-
-    newPlayer:GetPropertyChangedSignal("Team"):Connect(function()
-        if newPlayer.Character and newPlayer.Character:FindFirstChild("Humanoid") then
-            addVisualsToCharacter(newPlayer.Character, newPlayer)
-        end
-    end)
-end
-
-for _, otherPlayer in pairs(players:GetPlayers()) do
-    onPlayerAdded(otherPlayer)
-end
-
-players.PlayerAdded:Connect(onPlayerAdded)
+end)
 
 players.PlayerRemoving:Connect(function(leavingPlayer)
     if leavingPlayer.Character then
         for _, obj in pairs(leavingPlayer.Character:GetChildren()) do
-            if obj.Name == "NameBillboard" or obj.Name == "HpBillboard" or obj:IsA("Highlight") then
+            if obj.Name == "NameBillboard" or obj.Name == "HpBillboard" or obj.Name == "TracerBeam" or obj:IsA("Highlight") then
                 obj:Destroy()
             end
         end
     end
 end)
 
-RunService.Heartbeat:Connect(function()
-    if not espSettings.Enabled or miscSettings.UnhookEnabled then
+RunService.RenderStepped:Connect(function()
+    if espSettings.Enabled and not miscSettings.UnhookEnabled then
+        updateAllVisuals()
+    else
         for _, otherPlayer in pairs(players:GetPlayers()) do
             if otherPlayer ~= player and otherPlayer.Character then
                 for _, obj in pairs(otherPlayer.Character:GetChildren()) do
-                    if obj.Name == "NameBillboard" or obj.Name == "HpBillboard" or obj:IsA("Highlight") then
+                    if obj.Name == "NameBillboard" or obj.Name == "HpBillboard" or obj.Name == "TracerBeam" or obj:IsA("Highlight") then
                         obj:Destroy()
                     end
                 end
             end
         end
-        return
-    end
-    for _, otherPlayer in pairs(players:GetPlayers()) do
-        if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild("Humanoid") then
-            addVisualsToCharacter(otherPlayer.Character, otherPlayer)
-        end
     end
 end)
 
-player.CharacterAdded:Connect(function(character)
-    task.wait(0.1)
-    updateAllVisuals()
-end)
+-- Ensure visuals are applied to existing players
+for _, otherPlayer in pairs(players:GetPlayers()) do
+    if otherPlayer.Character then
+        addVisualsToCharacter(otherPlayer.Character, otherPlayer)
+    end
+end
